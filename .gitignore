@@ -1,5 +1,6 @@
 # Emacs garbage
 *~
 
-# Test files
+# Output files
 selected_frames.dat
+*.log

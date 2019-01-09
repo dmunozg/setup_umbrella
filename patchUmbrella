@@ -1,0 +1,129 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+
+import logging
+import argparse
+import os
+from sys import exit
+
+
+def parse_distances(distancesFileName):
+    '''Parse the distancesFile into a list of frames and distances.
+    Obtaining a list in the form [ [frame0, distance0],
+    [frame1],[distance1]... and so on
+
+    '''
+    distancesFile = open(distancesFileName, 'r')
+    distancesList = []
+    for line in distancesFile:
+        distancesList.append([ float(i) for i in line.split() ])
+    return distancesList
+
+def find_windows(frameList, interval):
+    '''Returns a list of the starting configurations that should be used
+    in the umbrella sampling'''
+    selectedFrames = []
+    currentIndex = 0
+    while currentIndex < len(frameList):
+        currentFrame = frameList[currentIndex]
+        selectedFrames.append(currentFrame)
+        distancesFromInterval = []
+        for frame in frameList[currentIndex + 1:]:
+            currentDistanceFromInt = abs(currentFrame[1]+interval-frame[1])
+            distancesFromInterval.append((frame[0], currentDistanceFromInt))
+        if len(distancesFromInterval) == 0:
+            break
+        minDistanceFromInt = min(distancesFromInterval,
+                                 key=(lambda tup: tup[1]))
+        logging.debug("Frame {0} has a {2}"
+                      " distance from frame {1}".format(currentFrame[0],
+                                                        minDistanceFromInt[0],
+                                                        minDistanceFromInt[1]))
+        currentIndex = int(minDistanceFromInt[0])
+    return selectedFrames
+
+def ask_interval(interval):
+    '''Asks and validate the distance interval to be used between
+    simulation windows'''
+    if interval > 0:
+            newInterval = interval
+            return newInterval
+    while True:
+        newInterval = input('Type the desired interval between windows: ')
+        try:
+            newInterval = float(newInterval)
+        except:
+            logging.warning('The interval must be a number.')
+            continue
+        if newInterval <= 0 :
+            logging.warning('The interval must be a positive number higher'
+                            ' than zero')
+            continue
+        return newInterval
+            
+def main():
+    # Verify if the file exists
+    if not os.path.isfile(DAT_FILE):
+        logging.critical('Could not find the specified file.')
+        return 1
+    # Parse the distances file into a list of frame and distances.
+    distancesList = parse_distances(DAT_FILE)
+    while True:
+        # Ask for an interval if it was not specified
+        interval = ask_interval(SPACING)
+        # Generate a windows list
+        selectedFrames = find_windows(distancesList, interval)
+        print("Frame \tDistance \tFrom Interval")
+        lastFrame = distancesList[0]
+        print("{0}\t{1}\t\t{2}".format(lastFrame[0],
+                                     round(lastFrame[1], 4), 0.0))
+        for selectedFrame in distancesList[1:]:
+            print("{0}\t{1}\t\t{2}".format(selectedFrame[0],
+                                         round(selectedFrame[1], 4),
+                                         round(selectedFrame[1] - lastFrame[1], 4)))
+            lastFrame = selectedFrame
+        if noConfirm == False:
+            confirmSelection = input(
+                "Do you wish to keep this results?[Y/n]: ")
+            if confirmSelection == 'n':
+                continue
+            else:
+                break
+        break
+    return 0
+
+if __name__ == '__main__':
+    desc = 'Reads a distances file to patch holes in an umbrella'
+    ' sampling calculation'
+    parser = argparse.ArgumentParser(description=desc)
+    parser.add_argument('-f',
+                        help='File containing the distances. (.dat)',
+                        type=str)
+    parser.add_argument('-o',
+                        help='Output file with the selected frames.'
+                        ' (patchUmbrella.dat by default)',
+                        type=str,
+                        default='patchUmbrella.dat')
+    parser.add_argument('-sp',
+                        help='Desired spacing between windows.(optional)',
+                        type=float,
+                        default=0.0)
+    parser.add_argument('-nc',
+                        help='Do not ask for confirmation.',
+                        type=bool,
+                        default=False)
+    # Parse arguments and declare them as global variables
+    args = parser.parse_args()
+    DAT_FILE = args.f
+    OUT_FILE = args.o
+    SPACING = args.sp
+    noConfirm = args.nc
+    # Initialize the logger
+    logging.basicConfig(level=logging.DEBUG,
+                        format='%(asctime)s %(name)-12s %(levelname)-8s '
+                        '%(message)s',
+                        datefmt='%m-%d %H:%M',
+                        filename='patchUmbrella.log',
+                        filemode='w')
+    # Start the main function
+    exit(main())

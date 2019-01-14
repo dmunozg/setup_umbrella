@@ -160,12 +160,17 @@ def find_windows(frameList, interval):
 #        distancesFromInterval = []
         for frame in frameList[currentIndex + 1:]:
             distanceFromInterval = abs(frame[1]-currentFrame[1])-interval
-            if distanceFromInterval >= 0:
-                currentFrame = frame
-                currentIndex = frame[0]
-                break
             if frame[0] == frameList[-1][0]:
                 finished = True
+                logging.debug("Reached final frame. Finishing.")
+                break
+            if distanceFromInterval >= 0:
+                logging.debug("Frame {0} has a {2} distance from"
+                              " frame {1}".format(frame[0],
+                                                  currentFrame[0],
+                                                  distanceFromInterval))
+                currentFrame = frame
+                currentIndex = frame[0]
                 break
         # for frame in frameList[currentIndex + 1:]:
         #     currentDistanceFromInt = abs(currentFrame[1]+interval-frame[1])
@@ -210,7 +215,7 @@ def main():
     # Check if separation has already been done
     confirmOverwrite = False
     if os.path.isdir("./coords"):
-        print("Trajectory splitting is appears to be already done.")
+        print("Trajectory splitting appears to be already done.")
         confirmOverwriteInput = input("Do you want to overwrite it?[y/N]]")
         if confirmOverwriteInput == 'y':
             confirmOverwrite = False

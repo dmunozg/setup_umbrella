@@ -477,7 +477,7 @@ if __name__ == "__main__":
         type=str,
         default=GROMACS_EXEC,
     )
-    parser.add_arguments(
+    parser.add_argument(
         "-u",
         metavar='umbrella/',
         help="Folder where the resulting files will be left",

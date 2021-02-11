@@ -11,35 +11,51 @@ from sys import exit
 from time import time, sleep
 from shutil import copyfile
 
+
+GROMACS_EXEC = "gmx_mpi"  # Default excecultable
+
+
 def check_file(file, extension):
-    '''Check if the file exists and if the extension fits'''
+    """Check if the file exists and if the extension fits"""
     if not os.path.isfile(file):
-        logging.critical('Could not find {0}', format(file))
+        logging.critical("Could not find {0}", format(file))
         return 1
     if not file.endswith(extension):
-        logging.critical('{0} is not a {1} file.'.format(file, extension))
+        logging.critical("{0} is not a {1} file.".format(file, extension))
         return 1
-    logging.debug('{0} will be used as {1}'.format(file, extension))
+    logging.debug("{0} will be used as {1}".format(file, extension))
     return 0
 
 
-def separate_trajectory():
-    '''Disassemble the trajectory into multiple frames'''
-    trjconv = sp.Popen(['gmx', 'trjconv', '-s', TPR_FILE, '-f', XTC_FILE,
-                        '-o', 'conf.gro', '-sep'], stdin=sp.PIPE,
-                       stdout=sp.PIPE)
-    trjconv.communicate(b'0\n')
+def separate_trajectory(tprFile, trrFile, workDir):
+    """Disassemble the trajectory into multiple frames"""
+    trjconv = sp.Popen(
+        [
+            GROMACS_EXEC,
+            "trjconv",
+            "-s",
+            tprFile,
+            "-f",
+            trrFile,
+            "-o",
+            os.path.join(workDir, "coords", "conf.gro"),
+            "-sep",
+        ],
+        stdin=sp.PIPE,
+        stdout=sp.PIPE,
+    )
+    trjconv.communicate(b"0\n")
     if trjconv.returncode == 0:
         return 0
     else:
         return 1
 
 
-def count_frames():
-    '''Counts the number of frames extracted from trjconv'''
+def count_frames(path):
+    """Counts the number of frames extracted from trjconv"""
     count = 0
-    filter = re.compile('conf.*\.gro')
-    for file in os.listdir():
+    filter = re.compile("conf.*\.gro")
+    for file in os.listdir(path):
         if filter.match(file):
             count += 1
         else:
@@ -48,30 +64,42 @@ def count_frames():
 
 
 def check_group(ndx_file, group):
-    '''Checks if the specified group is in the ndx file.'''
+    """Checks if the specified group is in the ndx file. Returns 0 if found, and 1 otherwise"""
     found = False
-    toFind = '[ ' + group + ' ]'
-    with open(ndx_file, 'r') as indexFile:
+    toFind = "[ " + group + " ]"
+    with open(ndx_file, "r") as indexFile:
         for line in indexFile:
             if toFind in line:
                 found = True
     if found:
         return 0
     else:
-        logging.critical(
-            'Could not find group {0} in index file.'.format(group))
+        logging.critical("Could not find group {0} in index file.".format(group))
         return 1
 
 
-def gen_dist(numConf, groupA, groupB):
-    '''Measure the distance of the two pulling groups in an specific frame'''
-    selection = "com of group \"{0}\" plus com of group \"{1}\"".format(
-        groupA, groupB)
-    distMeasure = sp.run(['gmx', 'distance', '-s', TPR_FILE, '-f',
-                          'conf' + str(numConf) +
-                          '.gro', '-n', NDX_FILE, '-oall',
-                          'dist' + str(numConf) + '.xvg', '-select', selection],
-                         stdout=sp.PIPE, stderr=sp.PIPE)
+def gen_dist(numConf, groupA, groupB, tprFile, ndxFile):
+    """Run gmx distance to measure the distance between groupA and groupB.
+    Deprecated"""
+    selection = 'com of group "{0}" plus com of group "{1}"'.format(groupA, groupB)
+    distMeasure = sp.run(
+        [
+            "gmx",
+            "distance",
+            "-s",
+            tprFile,
+            "-f",
+            "conf" + str(numConf) + ".gro",
+            "-n",
+            ndxFile,
+            "-oall",
+            "dist" + str(numConf) + ".xvg",
+            "-select",
+            selection,
+        ],
+        stdout=sp.PIPE,
+        stderr=sp.PIPE,
+    )
     if distMeasure.returncode == 0:
         return 0
     else:
@@ -79,58 +107,77 @@ def gen_dist(numConf, groupA, groupB):
 
 
 def clean_up(totalFrames):
-    '''Deletes all the temporal files created during the program'''
+    # TODO
+    # Reemplazar por una rutina que utilice RegExp
+    """Deletes all the temporal files created during the program"""
     for iii in range(totalFrames):
         try:
-            os.remove('dist{0}.xvg'.format(iii))
+            os.remove("dist{0}.xvg".format(iii))
         except:
-            logging.error('Failed to remove file dist{0}.xvg'.format(iii))
+            logging.error("Failed to remove file dist{0}.xvg".format(iii))
     return 0
 
+
 def tidy_up(totalFrames, selectedFrames, coordsFolder, umbrellaFolder):
-    '''Copies all resulting configurations to a folder, and the ones
-    selected for the umbrella sampling to another'''
-    if not os.path.isdir('./{0}'.format(umbrellaFolder)):
+    # TODO
+    # Los archivos deberían crearse y utilizarse en su directorio final. Esta rutina debe quedar obsoleta
+    """Copies all resulting configurations to a folder, and the ones
+    selected for the umbrella sampling to another"""
+    if not os.path.isdir("./{0}".format(umbrellaFolder)):
         os.mkdir(umbrellaFolder)
     for frame in selectedFrames:
-        copyfile('./conf{0}.gro'.format(frame[0]),
-                 './{0}/conf{1}.gro'.format(umbrellaFolder, frame[0]))
+        copyfile(
+            "./conf{0}.gro".format(frame[0]),
+            "./{0}/conf{1}.gro".format(umbrellaFolder, frame[0]),
+        )
     if not os.path.isdir(coordsFolder):
         os.mkdir(coordsFolder)
     for iii in range(totalFrames):
-        os.rename('./conf{0}.gro'.format(iii),
-                  './{0}/conf{1}.gro'.format(coordsFolder, iii))
+        os.rename(
+            "./conf{0}.gro".format(iii), "./{0}/conf{1}.gro".format(coordsFolder, iii)
+        )
     return 0
 
+
 def dist_worker(ID, FramesQueue, groupA, groupB):
-    '''Worker that will calculate distances of frames out of a pool'''
+    """Worker that will calculate distances of frames out of a pool.
+    Deprecated"""
     while True:
         if FramesQueue.empty():
-            logging.debug(
-                "Queue is empty, Shutting down worker {0}".format(ID))
+            logging.debug("Queue is empty, Shutting down worker {0}".format(ID))
             return 0
         currentFrame = FramesQueue.get()
-        logging.debug("Worker {0} got frame {1} to measure its"
-                      " distance.".format(os.getpid(), currentFrame))
+        logging.debug(
+            "Worker {0} got frame {1} to measure its"
+            " distance.".format(os.getpid(), currentFrame)
+        )
         if not gen_dist(currentFrame, groupA, groupB) == 0:
-            logging.warning("Worker {0} failed to calculate distance in frame"
-                            " {1}".format(os.getpid(), currentFrame))
+            logging.warning(
+                "Worker {0} failed to calculate distance in frame"
+                " {1}".format(os.getpid(), currentFrame)
+            )
         pass
 
 
 def read_distance_worker(ID, inQueue, outQueue):
-    '''Worker that reads the distance out of a dist file and returns a
+    # TODO
+    # Reescribir este trabajador para que en una sola rutina ejecute gmx grompp y lea la salida para determinar
+    # la distancia
+    """Worker that reads the distance out of a dist file and returns a
     tuple with the frame and the measured distance.
-    '''
+    """
     while True:
         if inQueue.empty():
-            logging.debug("Queue is empty, Shutting down"
-                          " worker {0}".format(os.getpid()))
+            logging.debug(
+                "Queue is empty, Shutting down" " worker {0}".format(os.getpid())
+            )
             return 0
         currentFrame = inQueue.get()
-        logging.debug("Worker {0} got frame {1}"
-                      " to read a distance.".format(os.getpid(), currentFrame))
-        distanceFile = open('dist{0}.xvg'.format(currentFrame), 'r')
+        logging.debug(
+            "Worker {0} got frame {1}"
+            " to read a distance.".format(os.getpid(), currentFrame)
+        )
+        distanceFile = open("dist{0}.xvg".format(currentFrame), "r")
         distLastLine = distanceFile.readlines()[-1]
         distanceFile.close()
         measuredDistance = float(distLastLine.split()[1])
@@ -139,7 +186,7 @@ def read_distance_worker(ID, inQueue, outQueue):
 
 
 def list_and_sort(queue):
-    '''Takes a queue and returns a sorted list with its content'''
+    """Takes a queue and returns a sorted list with its content"""
     unsortedList = []
     while not queue.empty():
         unsortedList.append(queue.get())
@@ -149,26 +196,26 @@ def list_and_sort(queue):
 
 
 def find_windows(frameList, interval):
-    '''Returns a list of the starting configurations that should be used
-    in the umbrella sampling'''
+    """Returns a list of the starting configurations that should be used
+    in the umbrella sampling"""
     selectedFrames = []
     currentIndex = 0
     finished = False
     while not finished:
         currentFrame = frameList[currentIndex]
         selectedFrames.append(currentFrame)
-#        distancesFromInterval = []
-        for frame in frameList[currentIndex + 1:]:
-            distanceFromInterval = abs(frame[1]-currentFrame[1])-interval
+        #        distancesFromInterval = []
+        for frame in frameList[currentIndex + 1 :]:
+            distanceFromInterval = abs(frame[1] - currentFrame[1]) - interval
             if frame[0] == frameList[-1][0]:
                 finished = True
                 logging.debug("Reached final frame. Finishing.")
                 break
             if distanceFromInterval >= 0:
-                logging.debug("Frame {0} has a {2} distance from"
-                              " frame {1}".format(frame[0],
-                                                  currentFrame[0],
-                                                  distanceFromInterval))
+                logging.debug(
+                    "Frame {0} has a {2} distance from"
+                    " frame {1}".format(frame[0], currentFrame[0], distanceFromInterval)
+                )
                 currentFrame = frame
                 currentIndex = frame[0]
                 break
@@ -179,11 +226,11 @@ def find_windows(frameList, interval):
         #     break
         # minDistanceFromInt = min(distancesFromInterval,
         #                          key=(lambda tup: tup[1]))
-        #logging.debug("Frame {0} has a {2}"
+        # logging.debug("Frame {0} has a {2}"
         #              " distance from frame {1}".format(currentFrame[0],
         #                                                minDistanceFromInt[0],
         #                                                minDistanceFromInt[1]))
-        #currentIndex = minDistanceFromInt[0]
+        # currentIndex = minDistanceFromInt[0]
     return selectedFrames
 
 
@@ -199,49 +246,55 @@ def check_interval(interval):
     return 0
 
 
-def main():
+def main(args):
     # Check if all specified files exist
-    if (check_file(XTC_FILE, '.xtc') and check_file(XTC_FILE, '.trr')):
+    if check_file(args.mdp, ".mdp"):
         return 1
-    if check_file(NDX_FILE, '.ndx'):
+    if check_file(args.trajectory, ".xtc") and check_file(args.trajectory, ".trr"):
         return 1
-    if check_file(TPR_FILE, '.tpr'):
+    if check_file(args.index, ".ndx"):
+        return 1
+    if check_file(args.tpr, ".tpr"):
         return 1
     # Check if the specified groups are inside the index file.
-    if check_group(NDX_FILE, GROUP_A):
+    if check_group(args.n, args.A):
         return 1
-    if check_group(NDX_FILE, GROUP_B):
+    if check_group(args.n, args.B):
         return 1
+    # Update gromacs executable
+    GROMACS_EXEC = args.g
     # Check if separation has already been done
     confirmOverwrite = False
-    if os.path.isdir("./coords"):
+    if os.path.isdir(os.path.join(args.u, "coords")):
         print("Trajectory splitting appears to be already done.")
         confirmOverwriteInput = input("Do you want to overwrite it?[y/N]]")
-        if confirmOverwriteInput == 'y':
+        if confirmOverwriteInput == "y":
             confirmOverwrite = False
         else:
             confirmOverwrite = True
     # Divide trajectory in multiple frames if necessary
-    if confirmOverwrite == False:
-        logging.debug('Separating ' + XTC_FILE + ' into multiple configurations.')
+    if not confirmOverwrite:
+        logging.debug(
+            "Separating " + args.trajectory + " into multiple configurations."
+        )
         timeCheck = time()
-        if separate_trajectory() == 0:
+        if separate_trajectory(args.tpr, args.trajectory, workDir=args.u) == 0:
             pass
         else:
-            logging.critical('There has been a problem when separating the'
-                             'trajectory.')
+            logging.critical(
+                "There has been a problem when separating the" "trajectory."
+            )
             return 1
         elapsed = round(time() - timeCheck, 3)
-        logging.info('Took {0} seconds to separate the trajectory'.format(elapsed))
+        logging.info("Took {0} seconds to separate the trajectory".format(elapsed))
     # Bring the coordinates if they were already done
     if confirmOverwrite:
-        for coordinate in os.listdir('./coords'):
-            os.rename('./coords/{0}'.format(coordinate),
-                      './{0}'.format(coordinate))
-        os.rmdir('./coords')
+        for coordinate in os.listdir("./coords"):
+            os.rename("./coords/{0}".format(coordinate), "./{0}".format(coordinate))
+        os.rmdir("./coords")
     # Count them
     totalConf = count_frames()
-    logging.info('{0} frames were extracted.'.format(totalConf))
+    logging.info("{0} frames were extracted.".format(totalConf))
     # Measure their distances.
     framesQueue = mp.Queue()
     for frame in range(totalConf):
@@ -250,20 +303,17 @@ def main():
     timeCheck = time()
     workerProcesses = []
     for workerID in range(NUM_CPU):
-        workerProcess = mp.Process(target=dist_worker, args=(workerID,
-                                                             framesQueue,
-                                                             GROUP_A,
-                                                             GROUP_B))
+        workerProcess = mp.Process(
+            target=dist_worker, args=(workerID, framesQueue, GROUP_A, GROUP_B)
+        )
         workerProcess.start()
         workerProcesses.append(workerProcess)
     while not framesQueue.empty():
         sleep(0.1)
-        print("Remaining frames: {0} ".format(framesQueue.qsize(),),
-              end='\r')
+        print("Remaining frames: {0} ".format(framesQueue.qsize(),), end="\r")
     print()
     for workerProcess in workerProcesses:
-        logging.debug("Waiting for worker {0}"
-                      " to finish.".format(workerProcess.pid))
+        logging.debug("Waiting for worker {0}" " to finish.".format(workerProcess.pid))
         workerProcess.join(2)
         workerProcess.terminate()
 
@@ -276,38 +326,39 @@ def main():
         framesQueue.put(frame)
     workerProcesses = []
     for workerID in range(NUM_CPU):
-        workerProcess = mp.Process(target=read_distance_worker,
-                                   args=(workerID, framesQueue, resultsQueue))
+        workerProcess = mp.Process(
+            target=read_distance_worker, args=(workerID, framesQueue, resultsQueue)
+        )
         workerProcess.start()
         workerProcesses.append(workerProcess)
     while not framesQueue.empty():
         sleep(0.1)
-        print("Remaining frames: {0} \t"
-              " Completed frames: {1} ".format(framesQueue.qsize(),
-                                              resultsQueue.qsize()),
-              end='\r')
+        print(
+            "Remaining frames: {0} \t"
+            " Completed frames: {1} ".format(framesQueue.qsize(), resultsQueue.qsize()),
+            end="\r",
+        )
     print()
     for workerProcess in workerProcesses:
-        logging.debug("Waiting for worker {0}"
-                      " to finish.".format(workerProcess.pid))
+        logging.debug("Waiting for worker {0}" " to finish.".format(workerProcess.pid))
         workerProcess.join(2)
         workerProcess.terminate()
     elapsed = round(time() - timeCheck, 3)
-    logging.info(
-        "Took {0} seconds to calculate each distance.".format(elapsed))
+    logging.info("Took {0} seconds to calculate each distance.".format(elapsed))
     print("Finished")
     # Convert resulting queue to a list.
     distancesList = list_and_sort(resultsQueue)
-    logging.debug("Resulting distance list"
-                  " has {0} distances".format(len(distancesList)))
+    logging.debug(
+        "Resulting distance list" " has {0} distances".format(len(distancesList))
+    )
     # Delete previous list if we're overwriting
     if confirmOverwrite:
-        os.remove('./summary_distances.dat')
+        os.remove("./summary_distances.dat")
     # Print resulting distances to a file.
     print("Writing distances to 'summary_distances.dat'")
-    summaryFile = open('summary_distances.dat', 'w')
+    summaryFile = open("summary_distances.dat", "w")
     for distance in distancesList:
-        print(distance[0], distance[1], sep='\t', file=summaryFile)
+        print(distance[0], distance[1], sep="\t", file=summaryFile)
     summaryFile.close()
     # Set interval if it was specified at runtime
     global SPACING
@@ -326,23 +377,25 @@ def main():
         windowList = find_windows(distancesList, SPACING)
         print("Frame \tDistance \tFrom Interval")
         lastFrame = windowList[0]
-        print("{0}\t{1}\t\t{2}".format(lastFrame[0],
-                                     round(lastFrame[1], 4), 0.0))
+        print("{0}\t{1}\t\t{2}".format(lastFrame[0], round(lastFrame[1], 4), 0.0))
         for selectedFrame in windowList[1:]:
-            print("{0}\t{1}\t\t{2}".format(selectedFrame[0],
-                                         round(selectedFrame[1], 4),
-                                         round(selectedFrame[1] - lastFrame[1], 4)))
+            print(
+                "{0}\t{1}\t\t{2}".format(
+                    selectedFrame[0],
+                    round(selectedFrame[1], 4),
+                    round(selectedFrame[1] - lastFrame[1], 4),
+                )
+            )
             lastFrame = selectedFrame
         if noConfirm == False:
-            confirmSelection = input(
-                "Do you wish to keep this results?[Y/n]: ")
-            if confirmSelection == 'n':
+            confirmSelection = input("Do you wish to keep this results?[Y/n]: ")
+            if confirmSelection == "n":
                 continue
             else:
                 break
         break
     # Write selected frames to file.
-    selectedFramesFile = open("selected_frames.dat", 'w')
+    selectedFramesFile = open("selected_frames.dat", "w")
     for frame in windowList:
         print(frame[0], file=selectedFramesFile)
     selectedFramesFile.close()
@@ -350,67 +403,58 @@ def main():
     # Tidy up the mess
     print("Tidying up folder.")
     clean_up(totalConf)
-    tidy_up(totalConf, windowList, 'coords', 'umbrella')
+    tidy_up(totalConf, windowList, "coords", "umbrella")
     print("Finished")
     return 0
+
 
 if __name__ == "__main__":
     # Define the program arguments
     desc = "Sets up an umbrella calculation from a pull simulation."
     parser = argparse.ArgumentParser(description=desc)
-    parser.add_argument('-f',
-                        help='Pull trajectory file. (.xtc or .trr)',
-                        type=str)
-    parser.add_argument('-s',
-                        help='Portable binary input file (.tpr)',
-                        type=str)
-    parser.add_argument('-n',
-                        help='Index file (.ndx)',
-                        type=str)
-    parser.add_argument('-A',
-                        help='Name of group A',
-                        type=str)
-    parser.add_argument('-B',
-                        help='Name of group B')
-    parser.add_argument('-np',
-                        help='Number of cores to use. Will guess by default',
-                        type=int,
-                        default=0)
-    parser.add_argument('-sp',
-                        help='Spacing between windows. Will ask by default',
-                        type=float,
-                        default=0.0)
-    # Parse the arguments and declare them as global variables
+    parser.add_argument(
+        "-f", "--mdp", help="MDP file to be used in the umbrella calculations", type=str
+    )
+    parser.add_argument(
+        "-t", "--trajectory", help="Pull trajectory file. (.xtc or .trr)", type=str
+    )
+    parser.add_argument(
+        "-s", "--tpr", help="Portable binary input file (.tpr)", type=str
+    )
+    parser.add_argument("-n", "--index", help="Index file (.ndx)", type=str)
+    parser.add_argument("-A", "--groupA", help="Name of group A", type=str)
+    parser.add_argument("-B", "--groupB", help="Name of group B")
+    parser.add_argument(
+        "-np", help="Number of cores to use. Will guess by default", type=int, default=0
+    )
+    parser.add_argument(
+        "-sp",
+        help="Spacing between windows. Will ask by default",
+        type=float,
+        default=0.0,
+    )
+    parser.add_argument(
+        "-g",
+        help="Gromacs executable, defaults to {}".format(GROMACS_EXEC),
+        type=string,
+        default=GROMACS_EXEC,
+    )
+    # Parse the arguments
     args = parser.parse_args()
-    XTC_FILE = args.f
-    TPR_FILE = args.s
-    NDX_FILE = args.n
-    GROUP_A = args.A
-    GROUP_B = args.B
     # Log all messages to a file
-    logging.basicConfig(level=logging.DEBUG,
-                        format='%(asctime)s %(name)-12s %(levelname)-8s '
-                        '%(message)s',
-                        datefmt='%m-%d %H:%M',
-                        filename=TPR_FILE.split('.')[0] + '.log',
-                        filemode='w')
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s %(name)-12s %(levelname)-8s " "%(message)s",
+        datefmt="%m-%d %H:%M",
+        filename=TPR_FILE.split(".")[0] + ".log",
+        filemode="w",
+    )
     # Define a handler to print to screen more important messages
     console = logging.StreamHandler()
     console.setLevel(logging.WARNING)
-    formatter = logging.Formatter('%(name)-12s: %(levelname)-8s %(message)s')
+    formatter = logging.Formatter("%(name)-12s: %(levelname)-8s %(message)s")
     console.setFormatter(formatter)
     # Add the handler to the logger
-    logging.getLogger('').addHandler(console)
-    # Identify if the number of specified thread is appropiate
-    if args.np == 0:
-        NUM_CPU = mp.cpu_count()
-    elif args.np > NUM_CPU:
-        NUM_CPU = mp.cpu_count()
-        logging.warn('The number of specified threads ({0}) is higher than the'
-                     ' number of cores ({1}). Will run with {1}'
-                     ' threads'.format(args.np, mp.cpu_count()))
-    else:
-        NUM_CPU = args.np
-    SPACING = args.sp
+    logging.getLogger("").addHandler(console)
     # Run main function
-    exit(main())
+    exit(main(args))

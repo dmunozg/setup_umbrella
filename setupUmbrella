@@ -3,6 +3,7 @@
 
 import subprocess as sp
 import multiprocessing as mp
+import numpy as np
 import logging
 import argparse
 import os
@@ -203,11 +204,16 @@ def read_distance_worker(ID, inQueue, outQueue, gromppRequirements, workDir):
             capture_output=True,
         )
         distancePattern = re.compile(r"[\d]+[\s]+([\d.-]+)\snm")
-        decodedOutput = tprGenerator.strerr.decode("utf-8")
+        decodedOutput = tprGenerator.stderr.decode("utf-8")
         for line in decodedOutput.split("\n"):
             if distancePattern.findall(line):
                 measuredDistance = float(distancePattern.findall(line)[0])
                 pass
+        else:
+            measuredDistance = np.nan
+            logging.warning(
+                "Distance could not be measured in frame {}".format(currentFrame)
+            )
         outQueue.put((currentFrame, measuredDistance))
         pass
 

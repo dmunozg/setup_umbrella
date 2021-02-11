@@ -214,6 +214,8 @@ def read_distance_worker(ID, inQueue, outQueue, gromppRequirements, workDir):
             logging.warning(
                 "Distance could not be measured in frame {}".format(currentFrame)
             )
+            with open("dist{frameID}.out".format(frameID=currentFrame), 'w') as dumpFile:
+                print(decodedOutput, file=dumpFile, end='')
         outQueue.put((currentFrame, measuredDistance))
         pass
 
@@ -330,7 +332,7 @@ def main(args):
     # for frame in range(totalConf):
     #     framesQueue.put(frame)
     # print("Calculating distances between groups.")
-    # timeCheck = time()
+    #
     # workerProcesses = []
     # for workerID in range(NUM_CPU):
     #     workerProcess = mp.Process(
@@ -349,6 +351,7 @@ def main(args):
 
     # Calculate the distance in each frame.
     # We need the necessary files to launch a grompp run:
+    timeCheck = time()
     gromppRequirements = {
         "mdpFile": args.mdp,
         "indexFile": args.index,

@@ -159,7 +159,7 @@ def dist_worker(ID, FramesQueue, groupA, groupB):
         pass
 
 
-def read_distance_worker(ID, inQueue, outQueue):
+def read_distance_worker(ID, inQueue, outQueue, gromppRequirements, workDir):
     # TODO
     # Reescribir este trabajador para que en una sola rutina ejecute gmx grompp y lea la salida para determinar
     # la distancia
@@ -177,10 +177,37 @@ def read_distance_worker(ID, inQueue, outQueue):
             "Worker {0} got frame {1}"
             " to read a distance.".format(os.getpid(), currentFrame)
         )
-        distanceFile = open("dist{0}.xvg".format(currentFrame), "r")
-        distLastLine = distanceFile.readlines()[-1]
-        distanceFile.close()
-        measuredDistance = float(distLastLine.split()[1])
+        tprGenerator = sp.run(
+            [
+                "gmx_mpi",
+                "grompp",
+                "-f",
+                gromppRequirements["mdpFile"],
+                "-n",
+                gromppRequirements["indexFile"],
+                "-p",
+                gromppRequirements["topolFile"],
+                "-c",
+                os.path.join(
+                    workDir, "coords", "conf{frameID}.gro".format(frameID=currentFrame)
+                ),
+                "-o",
+                os.path.join(
+                    workDir, "coords", "dist{frameID}.tpr".format(frameID=currentFrame)
+                ),
+                "-po",
+                os.path.join(
+                    workDir, "coords", "mdout{frameID}.mdp".format(frameID=currentFrame)
+                ),
+            ],
+            capture_output=True,
+        )
+        distancePattern = re.compile(r"[\d]+[\s]+([\d.-]+)\snm")
+        decodedOutput = tprGenerator.strerr.decode('utf-8')
+        for line in decodedOutput.split('\n'):
+            if distancePattern.findall(line):
+                measuredDistance = float(distancePattern.findall(line)[0])
+                pass
         outQueue.put((currentFrame, measuredDistance))
         pass
 
@@ -256,6 +283,8 @@ def main(args):
         return 1
     if check_file(args.tpr, ".tpr"):
         return 1
+    if check_file(args.topol, ".top"):
+        return 1
     # Check if the specified groups are inside the index file.
     if check_group(args.n, args.A):
         return 1
@@ -287,37 +316,38 @@ def main(args):
             return 1
         elapsed = round(time() - timeCheck, 3)
         logging.info("Took {0} seconds to separate the trajectory".format(elapsed))
-    # Bring the coordinates if they were already done
-    if confirmOverwrite:
-        for coordinate in os.listdir("./coords"):
-            os.rename("./coords/{0}".format(coordinate), "./{0}".format(coordinate))
-        os.rmdir("./coords")
-    # Count them
-    totalConf = count_frames()
+    # Count the number of frames in coords folder
+    totalConf = count_frames(os.path.join(args.u, "coords"))
     logging.info("{0} frames were extracted.".format(totalConf))
-    # Measure their distances.
-    framesQueue = mp.Queue()
-    for frame in range(totalConf):
-        framesQueue.put(frame)
-    print("Calculating distances between groups.")
-    timeCheck = time()
-    workerProcesses = []
-    for workerID in range(NUM_CPU):
-        workerProcess = mp.Process(
-            target=dist_worker, args=(workerID, framesQueue, GROUP_A, GROUP_B)
-        )
-        workerProcess.start()
-        workerProcesses.append(workerProcess)
-    while not framesQueue.empty():
-        sleep(0.1)
-        print("Remaining frames: {0} ".format(framesQueue.qsize(),), end="\r")
-    print()
-    for workerProcess in workerProcesses:
-        logging.debug("Waiting for worker {0}" " to finish.".format(workerProcess.pid))
-        workerProcess.join(2)
-        workerProcess.terminate()
+    # # Measure their distances.
+    # framesQueue = mp.Queue()
+    # for frame in range(totalConf):
+    #     framesQueue.put(frame)
+    # print("Calculating distances between groups.")
+    # timeCheck = time()
+    # workerProcesses = []
+    # for workerID in range(NUM_CPU):
+    #     workerProcess = mp.Process(
+    #         target=dist_worker, args=(workerID, framesQueue, GROUP_A, GROUP_B)
+    #     )
+    #     workerProcess.start()
+    #     workerProcesses.append(workerProcess)
+    # while not framesQueue.empty():
+    #     sleep(0.1)
+    #     print("Remaining frames: {0} ".format(framesQueue.qsize(),), end="\r")
+    # print()
+    # for workerProcess in workerProcesses:
+    #     logging.debug("Waiting for worker {0}" " to finish.".format(workerProcess.pid))
+    #     workerProcess.join(2)
+    #     workerProcess.terminate()
 
-    # Now read the distances out of the xvg files.
+    # Calculate the distance in each frame.
+    # We need the necessary files to launch a grompp run:
+    gromppRequirements = {
+        "mdpFile": args.mdp,
+        "indexFile": args.index,
+        "topolFile": args.topol,
+    }
     print("Measuring distances from calculation... ")
     # Refill the queue
     framesQueue = mp.Queue()
@@ -327,7 +357,8 @@ def main(args):
     workerProcesses = []
     for workerID in range(NUM_CPU):
         workerProcess = mp.Process(
-            target=read_distance_worker, args=(workerID, framesQueue, resultsQueue)
+            target=read_distance_worker,
+            args=(workerID, framesQueue, resultsQueue, gromppRequirements, args.u),
         )
         workerProcess.start()
         workerProcesses.append(workerProcess)
@@ -353,17 +384,16 @@ def main(args):
     )
     # Delete previous list if we're overwriting
     if confirmOverwrite:
-        os.remove("./summary_distances.dat")
+        os.remove(os.path.join(args.u, "summary_distances.dat"))
     # Print resulting distances to a file.
-    print("Writing distances to 'summary_distances.dat'")
-    summaryFile = open("summary_distances.dat", "w")
+    print("Writing distances to", os.path.join(args.u, "summary_distances.dat"))
+    summaryFile = open(os.path.join(args.u, "summary_distances.dat"), "w")
     for distance in distancesList:
         print(distance[0], distance[1], sep="\t", file=summaryFile)
     summaryFile.close()
     # Set interval if it was specified at runtime
-    global SPACING
-    if SPACING > 0.0:
-        SPACING = abs(float(SPACING))
+    if args.sp > 0.0:
+        args.sp = abs(float(args.sp))
         noConfirm = True
     else:
         noConfirm = False
@@ -372,9 +402,9 @@ def main(args):
             interval = input("Enter the desired window interval: ")
             if check_interval(interval):
                 continue
-            SPACING = abs(float(interval))
+            args.sp = abs(float(interval))
         print("Building window list...")
-        windowList = find_windows(distancesList, SPACING)
+        windowList = find_windows(distancesList, args.sp)
         print("Frame \tDistance \tFrom Interval")
         lastFrame = windowList[0]
         print("{0}\t{1}\t\t{2}".format(lastFrame[0], round(lastFrame[1], 4), 0.0))
@@ -422,6 +452,14 @@ if __name__ == "__main__":
         "-s", "--tpr", help="Portable binary input file (.tpr)", type=str
     )
     parser.add_argument("-n", "--index", help="Index file (.ndx)", type=str)
+    parser.add_argument(
+        "-p",
+        "--topol",
+        metavar="topol.top",
+        default="topol.top",
+        help="Topology file (.top)",
+        type=str,
+    )
     parser.add_argument("-A", "--groupA", help="Name of group A", type=str)
     parser.add_argument("-B", "--groupB", help="Name of group B")
     parser.add_argument(
@@ -429,7 +467,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "-sp",
-        help="Spacing between windows. Will ask by default",
+        help="args.sp between windows. Will ask by default",
         type=float,
         default=0.0,
     )

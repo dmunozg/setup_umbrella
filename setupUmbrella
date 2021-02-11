@@ -474,7 +474,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "-g",
         help="Gromacs executable, defaults to {}".format(GROMACS_EXEC),
-        type=string,
+        type=str,
         default=GROMACS_EXEC,
     )
     # Parse the arguments

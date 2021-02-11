@@ -214,8 +214,11 @@ def read_distance_worker(ID, inQueue, outQueue, gromppRequirements, workDir):
             logging.warning(
                 "Distance could not be measured in frame {}".format(currentFrame)
             )
-            with open("dist{frameID}.out".format(frameID=currentFrame), 'w') as dumpFile:
-                print(decodedOutput, file=dumpFile, end='')
+            dumpFileDestination = os.path.join(
+                workDir, "coords", "dist{frameID}.out".format(frameID=currentFrame)
+            )
+            with open(dumpFileDestination, "w") as dumpFile:
+                print(decodedOutput, file=dumpFile, end="")
         outQueue.put((currentFrame, measuredDistance))
         pass
 
@@ -299,6 +302,7 @@ def main(args):
     if check_group(args.index, args.groupB):
         return 1
     # Update gromacs executable
+    global GROMACS_EXEC
     GROMACS_EXEC = args.g
     # Check if separation has already been done
     confirmOverwrite = False

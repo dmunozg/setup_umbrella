@@ -484,7 +484,7 @@ if __name__ == "__main__":
         level=logging.DEBUG,
         format="%(asctime)s %(name)-12s %(levelname)-8s " "%(message)s",
         datefmt="%m-%d %H:%M",
-        filename=TPR_FILE.split(".")[0] + ".log",
+        filename=args.tpr.split(".")[0] + ".log",
         filemode="w",
     )
     # Define a handler to print to screen more important messages

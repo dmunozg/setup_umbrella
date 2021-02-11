@@ -480,13 +480,14 @@ if __name__ == "__main__":
     # Parse the arguments
     args = parser.parse_args()
     # Log all messages to a file
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format="%(asctime)s %(name)-12s %(levelname)-8s " "%(message)s",
-        datefmt="%m-%d %H:%M",
-        filename=args.tpr.split(".")[0] + ".log",
-        filemode="w",
-    )
+    if args.tpr:
+        logging.basicConfig(
+            level=logging.DEBUG,
+            format="%(asctime)s %(name)-12s %(levelname)-8s " "%(message)s",
+            datefmt="%m-%d %H:%M",
+            filename=args.tpr.split(".")[0] + ".log",
+            filemode="w",
+        )
     # Define a handler to print to screen more important messages
     console = logging.StreamHandler()
     console.setLevel(logging.WARNING)

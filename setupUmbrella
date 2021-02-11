@@ -286,9 +286,9 @@ def main(args):
     if check_file(args.topol, ".top"):
         return 1
     # Check if the specified groups are inside the index file.
-    if check_group(args.n, args.A):
+    if check_group(args.index, args.A):
         return 1
-    if check_group(args.n, args.B):
+    if check_group(args.index, args.B):
         return 1
     # Update gromacs executable
     GROMACS_EXEC = args.g

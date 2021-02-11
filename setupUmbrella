@@ -207,11 +207,8 @@ def read_distance_worker(ID, inQueue, outQueue, gromppRequirements, workDir):
             r"[\ ]*[\d]{1,2}[\s]*[\d]{1,5}[\s]*[\d]{1,5}[\s]+(?P<distance>[\d.-]+)\snm[\s]*[.\d]{5,6}\snm"
         )
         decodedOutput = tprGenerator.stderr.decode("utf-8")
-        for line in decodedOutput.split("\n"):
-            if distancePattern.match(line):
-                distanceParser = distancePattern.match(line)
-                measuredDistance = float(distanceParser["distance"])
-                pass
+        if distancePattern.findall(decodedOutput):
+            measuredDistance = float(distanceParser.findall(decodedOutput)[0])
         else:
             measuredDistance = np.nan
             logging.warning(
@@ -446,7 +443,6 @@ def main(args):
     for frame in windowList:
         print(frame[0], file=selectedFramesFile)
     selectedFramesFile.close()
-
     print("Finished")
     return 0
 

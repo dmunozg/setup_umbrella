@@ -203,8 +203,8 @@ def read_distance_worker(ID, inQueue, outQueue, gromppRequirements, workDir):
             capture_output=True,
         )
         distancePattern = re.compile(r"[\d]+[\s]+([\d.-]+)\snm")
-        decodedOutput = tprGenerator.strerr.decode('utf-8')
-        for line in decodedOutput.split('\n'):
+        decodedOutput = tprGenerator.strerr.decode("utf-8")
+        for line in decodedOutput.split("\n"):
             if distancePattern.findall(line):
                 measuredDistance = float(distancePattern.findall(line)[0])
                 pass
@@ -425,15 +425,12 @@ def main(args):
                 break
         break
     # Write selected frames to file.
-    selectedFramesFile = open("selected_frames.dat", "w")
+    print("Writing selected frames to", os.path.join(args.u, "selected_frames.dat"))
+    selectedFramesFile = open(os.path.join(args.u, "selected_frames.dat"), "w")
     for frame in windowList:
         print(frame[0], file=selectedFramesFile)
     selectedFramesFile.close()
-    print("Writing selected frames to 'selected_frames.dat'")
-    # Tidy up the mess
-    print("Tidying up folder.")
-    clean_up(totalConf)
-    tidy_up(totalConf, windowList, "coords", "umbrella")
+
     print("Finished")
     return 0
 
@@ -479,10 +476,10 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "-u",
-        metavar='umbrella/',
+        metavar="umbrella/",
         help="Folder where the resulting files will be left",
         type=str,
-        default='umbrella'
+        default="umbrella",
     )
     # Parse the arguments
     args = parser.parse_args()

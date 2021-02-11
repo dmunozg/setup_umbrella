@@ -355,7 +355,7 @@ def main(args):
     for frame in range(totalConf):
         framesQueue.put(frame)
     workerProcesses = []
-    for workerID in range(NUM_CPU):
+    for workerID in range(mp.cpu_count()):
         workerProcess = mp.Process(
             target=read_distance_worker,
             args=(workerID, framesQueue, resultsQueue, gromppRequirements, args.u),
@@ -476,6 +476,13 @@ if __name__ == "__main__":
         help="Gromacs executable, defaults to {}".format(GROMACS_EXEC),
         type=str,
         default=GROMACS_EXEC,
+    )
+    parser.add_arguments(
+        "-u",
+        metavar='umbrella/',
+        help="Folder where the resulting files will be left",
+        type=str,
+        default='umbrella'
     )
     # Parse the arguments
     args = parser.parse_args()

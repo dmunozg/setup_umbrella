@@ -208,7 +208,7 @@ def read_distance_worker(ID, inQueue, outQueue, gromppRequirements, workDir):
         )
         decodedOutput = tprGenerator.stderr.decode("utf-8")
         if distancePattern.findall(decodedOutput):
-            measuredDistance = float(distanceParser.findall(decodedOutput)[0])
+            measuredDistance = float(distancePattern.findall(decodedOutput)[0])
         else:
             measuredDistance = np.nan
             logging.warning(

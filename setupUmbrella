@@ -11,7 +11,7 @@ import re
 from sys import exit
 from time import time, sleep
 from shutil import copyfile
-
+from pathlib import Path
 
 GROMACS_EXEC = "gmx_mpi"  # Default excecultable
 
@@ -313,6 +313,8 @@ def main(args):
             confirmOverwrite = False
         else:
             confirmOverwrite = True
+    # Create the working directory if they dont exist
+    Path(os.path.join(args.u, "coords")).mkdir(parents=True, exist_ok=True)
     # Divide trajectory in multiple frames if necessary
     if not confirmOverwrite:
         logging.debug(

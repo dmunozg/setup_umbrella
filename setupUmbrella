@@ -10,11 +10,32 @@ import os
 import re
 from sys import exit
 from time import time, sleep
-from shutil import copyfile
+from shutil import copyfile,which
 from pathlib import Path
+from distutils.version import LooseVersion
 
-GROMACS_EXEC = "gmx_mpi"  # Default excecultable
+# Buscaré entre estos posible ejecutables para encontrar gromacs
+GROMACS_EXEC_LIST= ["gmx",
+                    "gmx_d",
+                    "gmx_mpi",
+                    "gmx_mpi_d"]
 
+for gmxExec in GROMACS_EXEC_LIST:
+    if which(gmxExec):
+        GROMACS_EXEC = gmxExec
+        break
+    else:
+        print("ERROR: Could not find a gromacs excecutable in PATH")
+        exit(2)
+
+def parseGromacsVersion():
+    """Runs gmx -version and returns a LooseVersion object with the found
+    version"""
+    gromacsVersionPattern = re.compile(r"GROMACS\sversion:[\s]+([\S.\-]+)")
+    gromacsVersionQuery = sp.run(["gmx", "-version"], capture_output=True)
+    versionString = gromacsVersionPattern.findall(gromacsVersionQuery.stdout.decode("utf-8"))[0]
+    return LooseVersion(versionString)
+GROMACS_VERSION = parseGromacsVersion()
 
 def check_file(file, extension):
     """Check if the file exists and if the extension fits"""
@@ -120,7 +141,7 @@ def clean_up(totalFrames):
 
 
 def tidy_up(totalFrames, selectedFrames, coordsFolder, umbrellaFolder):
-    # TODO
+    # OBSOLETE
     # Los archivos deberían crearse y utilizarse en su directorio final. Esta rutina debe quedar obsoleta
     """Copies all resulting configurations to a folder, and the ones
     selected for the umbrella sampling to another"""
@@ -161,9 +182,6 @@ def dist_worker(ID, FramesQueue, groupA, groupB):
 
 
 def read_distance_worker(ID, inQueue, outQueue, gromppRequirements, workDir):
-    # TODO
-    # Reescribir este trabajador para que en una sola rutina ejecute gmx grompp y lea la salida para determinar
-    # la distancia
     """Worker that reads the distance out of a dist file and returns a
     tuple with the frame and the measured distance.
     """
@@ -178,31 +196,63 @@ def read_distance_worker(ID, inQueue, outQueue, gromppRequirements, workDir):
             "Worker {0} got frame {1}"
             " to read a distance.".format(os.getpid(), currentFrame)
         )
-        tprGenerator = sp.run(
-            [
-                "gmx_mpi",
-                "grompp",
-                "-f",
-                gromppRequirements["mdpFile"],
-                "-n",
-                gromppRequirements["indexFile"],
-                "-p",
-                gromppRequirements["topolFile"],
-                "-c",
-                os.path.join(
-                    workDir, "coords", "conf{frameID}.gro".format(frameID=currentFrame)
-                ),
-                "-o",
-                os.path.join(
-                    workDir, "coords", "dist{frameID}.tpr".format(frameID=currentFrame)
-                ),
-                "-po",
-                os.path.join(
-                    workDir, "coords", "mdout{frameID}.mdp".format(frameID=currentFrame)
-                ),
-            ],
-            capture_output=True,
-        )
+        if GROMACS_VERSION > LooseVersion("2018"):
+            tprGenerator = sp.run(
+                [
+                    "gmx_mpi",
+                    "grompp",
+                    "-f",
+                    gromppRequirements["mdpFile"],
+                    "-n",
+                    gromppRequirements["indexFile"],
+                    "-p",
+                    gromppRequirements["topolFile"],
+                    "-c",
+                    os.path.join(
+                        workDir, "coords", "conf{frameID}.gro".format(frameID=currentFrame)
+                    ),
+                    "-r",
+                    os.path.join(
+                        workDir, "coords", "conf{frameID}.gro".format(frameID=currentFrame)
+                    ),
+                    "-o",
+                    os.path.join(
+                        workDir, "coords", "dist{frameID}.tpr".format(frameID=currentFrame)
+                    ),
+                    "-po",
+                    os.path.join(
+                        workDir, "coords", "mdout{frameID}.mdp".format(frameID=currentFrame)
+                    ),
+                ],
+                capture_output=True,
+            )
+            pass
+        else:
+            tprGenerator = sp.run(
+                [
+                    "gmx_mpi",
+                    "grompp",
+                    "-f",
+                    gromppRequirements["mdpFile"],
+                    "-n",
+                    gromppRequirements["indexFile"],
+                    "-p",
+                    gromppRequirements["topolFile"],
+                    "-c",
+                    os.path.join(
+                        workDir, "coords", "conf{frameID}.gro".format(frameID=currentFrame)
+                    ),
+                    "-o",
+                    os.path.join(
+                        workDir, "coords", "dist{frameID}.tpr".format(frameID=currentFrame)
+                    ),
+                    "-po",
+                    os.path.join(
+                        workDir, "coords", "mdout{frameID}.mdp".format(frameID=currentFrame)
+                    ),
+                ],
+                capture_output=True,
+            )
         distancePattern = re.compile(
             r"[\ ]*[\d]{1,2}[\s]*[\d]{1,5}[\s]*[\d]{1,5}[\s]+(?P<distance>[\d.-]+)\snm[\s]*[-.\d]{5,6}\snm"
         )
@@ -303,7 +353,6 @@ def main(args):
         return 1
     # Update gromacs executable
     global GROMACS_EXEC
-    GROMACS_EXEC = args.g
     # Check if separation has already been done
     confirmOverwrite = False
     if os.path.isdir(os.path.join(args.u, "coords")):
@@ -481,12 +530,6 @@ if __name__ == "__main__":
         help="args.sp between windows. Will ask by default",
         type=float,
         default=0.0,
-    )
-    parser.add_argument(
-        "-g",
-        help="Gromacs executable, defaults to {}".format(GROMACS_EXEC),
-        type=str,
-        default=GROMACS_EXEC,
     )
     parser.add_argument(
         "-u",

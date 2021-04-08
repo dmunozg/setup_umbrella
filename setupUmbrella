@@ -292,7 +292,6 @@ def find_windows(frameList, interval):
     while not finished:
         currentFrame = frameList[currentIndex]
         selectedFrames.append(currentFrame)
-        #        distancesFromInterval = []
         for frame in frameList[currentIndex + 1 :]:
             distanceFromInterval = abs(frame[1] - currentFrame[1]) - interval
             if frame[0] == frameList[-1][0]:
@@ -305,20 +304,8 @@ def find_windows(frameList, interval):
                     " frame {1}".format(frame[0], currentFrame[0], distanceFromInterval)
                 )
                 currentFrame = frame
-                currentIndex = frame[0]
+                currentIndex = frameList.index(frame)
                 break
-        # for frame in frameList[currentIndex + 1:]:
-        #     currentDistanceFromInt = abs(currentFrame[1]+interval-frame[1])
-        #     distancesFromInterval.append((frame[0], currentDistanceFromInt))
-        # if len(distancesFromInterval) == 0:
-        #     break
-        # minDistanceFromInt = min(distancesFromInterval,
-        #                          key=(lambda tup: tup[1]))
-        # logging.debug("Frame {0} has a {2}"
-        #              " distance from frame {1}".format(currentFrame[0],
-        #                                                minDistanceFromInt[0],
-        #                                                minDistanceFromInt[1]))
-        # currentIndex = minDistanceFromInt[0]
     return selectedFrames
 
 
@@ -333,6 +320,16 @@ def check_interval(interval):
         return 1
     return 0
 
+def filter_out_by_limits(distancesList, minLim, maxLim):
+    logging.debug("Will discard every frame that is not between {} and {}".format(minLim, maxLim))
+    newDistancesList = []
+    for distanceID, distanceValue in distancesList:
+        if (distanceValue >= minLim) and (distanceValue <= maxLim):
+            newDistancesList.append((distanceID, distanceValue))
+        else:
+            pass
+    logging.info("{} frames were discarded.".format(len(distancesList)-len(newDistancesList)))
+    return newDistancesList
 
 def main(args):
     # Check if all specified files exist
@@ -381,7 +378,7 @@ def main(args):
         logging.info("Took {0} seconds to separate the trajectory".format(elapsed))
     # Count the number of frames in coords folder
     totalConf = count_frames(os.path.join(args.u, "coords"))
-    logging.info("{0} frames were extracted.".format(totalConf))
+    logging.info("{0} frames found in coords directory.".format(totalConf))
     # # Measure their distances.
     # framesQueue = mp.Queue()
     # for frame in range(totalConf):
@@ -404,57 +401,79 @@ def main(args):
     #     workerProcess.join(2)
     #     workerProcess.terminate()
 
-    # Calculate the distance in each frame.
-    # We need the necessary files to launch a grompp run:
-    timeCheck = time()
-    gromppRequirements = {
-        "mdpFile": args.mdp,
-        "indexFile": args.index,
-        "topolFile": args.topol,
-    }
-    print("Measuring distances from calculation... ")
-    # Refill the queue
-    framesQueue = mp.Queue()
-    resultsQueue = mp.Queue()
-    for frame in range(totalConf):
-        framesQueue.put(frame)
-    workerProcesses = []
-    for workerID in range(mp.cpu_count()):
-        workerProcess = mp.Process(
-            target=read_distance_worker,
-            args=(workerID, framesQueue, resultsQueue, gromppRequirements, args.u),
+    # Dont redo this if we're not overwriting
+    if os.path.isfile(os.path.join(args.u, "summary_distances.dat")):
+        isFirstRun = False
+        print("Distances measurement seems to already been done.")
+        confirmOverwriteInput = input("Do you want to overwrite it?[y/N]]")
+        if confirmOverwriteInput.upper() == "Y":
+            confirmOverwrite = True
+        else:
+            confirmOverwrite = False
+    else:
+        isFirstRun = True
+        confirmOverwrite = None
+    if confirmOverwrite or isFirstRun:
+        # Calculate the distance in each frame.
+        # We need the necessary files to launch a grompp run:
+        timeCheck = time()
+        gromppRequirements = {
+            "mdpFile": args.mdp,
+            "indexFile": args.index,
+            "topolFile": args.topol,
+        }
+        print("Measuring distances from calculation... ")
+        # Refill the queue
+        framesQueue = mp.Queue()
+        resultsQueue = mp.Queue()
+        for frame in range(totalConf):
+            framesQueue.put(frame)
+            workerProcesses = []
+        for workerID in range(mp.cpu_count()):
+            workerProcess = mp.Process(
+                target=read_distance_worker,
+                args=(workerID, framesQueue, resultsQueue, gromppRequirements, args.u),
+            )
+            workerProcess.start()
+            workerProcesses.append(workerProcess)
+        while not framesQueue.empty():
+            sleep(0.1)
+            print(
+                "Remaining frames: {0} \t"
+                " Completed frames: {1} ".format(framesQueue.qsize(), resultsQueue.qsize()),
+                end="\r",
+            )
+        print()
+        for workerProcess in workerProcesses:
+            logging.debug("Waiting for worker {0}" " to finish.".format(workerProcess.pid))
+            workerProcess.join(2)
+            workerProcess.terminate()
+        elapsed = round(time() - timeCheck, 3)
+        logging.info("Took {0} seconds to calculate every distance.".format(elapsed))
+        print("Finished")
+        # Convert resulting queue to a list.
+        distancesList = list_and_sort(resultsQueue)
+        logging.debug(
+            "Resulting distance list" " has {0} distances".format(len(distancesList))
         )
-        workerProcess.start()
-        workerProcesses.append(workerProcess)
-    while not framesQueue.empty():
-        sleep(0.1)
-        print(
-            "Remaining frames: {0} \t"
-            " Completed frames: {1} ".format(framesQueue.qsize(), resultsQueue.qsize()),
-            end="\r",
-        )
-    print()
-    for workerProcess in workerProcesses:
-        logging.debug("Waiting for worker {0}" " to finish.".format(workerProcess.pid))
-        workerProcess.join(2)
-        workerProcess.terminate()
-    elapsed = round(time() - timeCheck, 3)
-    logging.info("Took {0} seconds to calculate each distance.".format(elapsed))
-    print("Finished")
-    # Convert resulting queue to a list.
-    distancesList = list_and_sort(resultsQueue)
-    logging.debug(
-        "Resulting distance list" " has {0} distances".format(len(distancesList))
-    )
-    # Delete previous list if we're overwriting
-    if confirmOverwrite:
-        os.remove(os.path.join(args.u, "summary_distances.dat"))
-    # Print resulting distances to a file.
-    print("Writing distances to", os.path.join(args.u, "summary_distances.dat"))
-    summaryFile = open(os.path.join(args.u, "summary_distances.dat"), "w")
-    for distance in distancesList:
-        print(distance[0], distance[1], sep="\t", file=summaryFile)
-    summaryFile.close()
+        # Delete previous list if we're overwriting
+        if confirmOverwrite:
+            os.remove(os.path.join(args.u, "summary_distances.dat"))
+        # Print resulting distances to a file.
+        print("Writing distances to", os.path.join(args.u, "summary_distances.dat"))
+        summaryFile = open(os.path.join(args.u, "summary_distances.dat"), "w")
+        for distance in distancesList:
+            print(distance[0], distance[1], sep="\t", file=summaryFile)
+        summaryFile.close()
+    # If this is not the first run, or we're not overwriting we should read from the already generated file
+    else:
+        summaryFile = open(os.path.join(args.u, "summary_distances.dat"), "r")
+        distancesList = []
+        for line in summaryFile:
+            lineContent = line.split()
+            distancesList.append( (int(lineContent[0]), float(lineContent[1])) )
+        summaryFile.close()
+        logging.info("{} frames found in summary_distances.dat file".format(len(distancesList)))
     # Set interval if it was specified at runtime
     if args.sp > 0.0:
         args.sp = abs(float(args.sp))
@@ -467,6 +486,18 @@ def main(args):
             if check_interval(interval):
                 continue
             args.sp = abs(float(interval))
+        # Check if limits were set
+        if args.limit:
+            distancesList = filter_out_by_limits(distancesList, args.limit[0], args.limit[1])
+            # Sort the resulting distances list by distance
+            distancesList.sort(key=lambda tup: tup[1])
+            print("{} frames remained after a limit filter.".format(len(distancesList)))
+            confirmShowFilteredDistances = input("Do you want to see the filtered distances list? [y/N]: ")
+            if confirmShowFilteredDistances.upper() == "Y":
+                for frameData in distancesList:
+                    print("{}\t\t{}".format(*frameData))
+                else:
+                    pass
         print("Building window list...")
         windowList = find_windows(distancesList, args.sp)
         print("Frame \tDistance \tFrom Interval")
@@ -526,6 +557,13 @@ if __name__ == "__main__":
         "-np", help="Number of cores to use. Will guess by default", type=int, default=0
     )
     parser.add_argument(
+        "--limit",
+        nargs=2,
+        type=float,
+        help="Ignore windows outside these limits",
+        default=None
+    )
+    parser.add_argument(
         "-sp",
         help="args.sp between windows. Will ask by default",
         type=float,
@@ -537,6 +575,11 @@ if __name__ == "__main__":
         help="Folder where the resulting files will be left",
         type=str,
         default="umbrella",
+    )
+    parser.add_argument(
+        "-v",
+        help="Be verbose",
+        action="store_true"
     )
     # Parse the arguments
     args = parser.parse_args()
@@ -551,7 +594,10 @@ if __name__ == "__main__":
         )
     # Define a handler to print to screen more important messages
     console = logging.StreamHandler()
-    console.setLevel(logging.WARNING)
+    if args.v:
+        console.setLevel(logging.DEBUG)
+    else:
+        console.setLevel(logging.WARNING)
     formatter = logging.Formatter("%(name)-12s: %(levelname)-8s %(message)s")
     console.setFormatter(formatter)
     # Add the handler to the logger

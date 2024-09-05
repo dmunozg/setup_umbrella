@@ -1,26 +1,32 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
+import multiprocessing as mp
 import os
 import re
-import multiprocessing as mp
+from pathlib import Path
+from typing import Any, Iterator, Optional
+
 import numpy as np
 import pandas as pd
 
-def chunks(lst, n):
+
+def chunks(lst: list[Any], n: int) -> Iterator[list[Any]]:
     """Yield successive n-sized chunks from lst."""
     for i in range(0, len(lst), n):
         yield lst[i : i + n]
 
-def get_cpu_count():
-    """Detecta el número de núcleos disponibles, identifica si está dentro de una tarea SLURM"""
-    if os.getenv("SLURM_CPUS_PER_TASK"):
-        return int(os.getenv("SLURM_CPUS_PER_TASK"))
+
+def get_cpu_count() -> int:
+    """Detecta el número de núcleos disponibles, identifica si está dentro de
+    una tarea SLURM"""
+    slurm_cpu_count = os.getenv("SLURM_CPUS_PER_TASK")
+    if slurm_cpu_count:
+        return int(slurm_cpu_count)
     else:
         return mp.cpu_count()
 
 
-def parse_atoms_in_gro(lineList):
+def parse_atoms_in_gro(line_list: list[str]) -> pd.DataFrame:
     atomInfoParser_NullVelocity = re.compile(
         r"(?P<resNumber>[\d\ ]{5})(?P<resName>[\s\d\w]{5})(?P<atomName>[\s\d\w]{5})(?P<atomNumber>[\s\d]{5})(?P<posX>[-\s.\d]{8})(?P<posY>[-\s.\d]{8})(?P<posZ>[-\s.\d]{8})"
     )
@@ -41,7 +47,7 @@ def parse_atoms_in_gro(lineList):
             "velZ",
         ]
     )
-    for line in lineList:
+    for line in line_list:
         if atomInfoParser.match(line):
             # Extraer datos, incluyendo velocidad
             currentLineParser = atomInfoParser.match(line)
@@ -57,8 +63,12 @@ def parse_atoms_in_gro(lineList):
                 "velY": float(currentLineParser["velY"]),
                 "velZ": float(currentLineParser["velZ"]),
             }
-            resultingDataframe = resultingDataframe.append(
-                currentLineInfo, ignore_index=True
+            resultingDataframe = pd.concat(
+                [
+                    resultingDataframe,
+                    pd.DataFrame(currentLineInfo),
+                ],
+                ignore_index=True,
             )
             pass
         elif atomInfoParser_NullVelocity.match(line):
@@ -76,8 +86,12 @@ def parse_atoms_in_gro(lineList):
                 "velY": np.nan,
                 "velZ": np.nan,
             }
-            resultingDataframe = resultingDataframe.append(
-                currentLineInfo, ignore_index=True
+            resultingDataframe = pd.concat(
+                [
+                    resultingDataframe,
+                    pd.DataFrame(currentLineInfo),
+                ],
+                ignore_index=True,
             )
             pass
         else:
@@ -86,11 +100,14 @@ def parse_atoms_in_gro(lineList):
             print(line)
     return resultingDataframe
 
-def gro_to_dataframe(groFilename):
+
+def gro_to_dataframe(
+    gro_filename: str | Path,
+) -> tuple[str, int, pd.DataFrame, tuple[float, float, float]]:
     """Returns a tuple with the following information:
     (title, nAtoms, atomDataframe, dimensions)
     Multi threaded implementation"""
-    inputGroFile = open(groFilename, "r")
+    inputGroFile = open(gro_filename)
     print("Cargando archivo GRO en la memoria... ", end="")
     inputGroFileLines = inputGroFile.readlines()
     print("OK!")
@@ -101,33 +118,46 @@ def gro_to_dataframe(groFilename):
     nAtoms = int(inputGroFileLines.pop(0))
     dimentionsDataRaw = inputGroFileLines.pop(-1)
     dimentionsData = dimentionsDataRaw.split()
-    dimX, dimY, dimZ = dimentionsData[0], dimentionsData[1], dimentionsData[2]
+    dimX_str, dimY_str, dimZ_str = (
+        dimentionsData[0],
+        dimentionsData[1],
+        dimentionsData[2],
+    )
+    dimX, dimY, dimZ = float(dimX_str), float(dimY_str), float(dimZ_str)
     print("OK!")
-    # Dividir la información cruda de los átomos según la cantidad de núcleos disponibles
-    print("Importando átomos empleando {} núcleos... ".format(get_cpu_count()), end='')
+    # Dividir la información cruda de los átomos según la cantidad de núcleos
+    # disponibles
+    print(
+        "Importando átomos empleando {} núcleos... ".format(get_cpu_count()),
+        end="",
+    )
     atomsPerCPU = len(inputGroFileLines) / get_cpu_count()
     splitLines = chunks(inputGroFileLines, int(atomsPerCPU))
-    # Repartir cada grupo a cada núcleo para que cada uno genere un dataFrame independiente
+    # Repartir cada grupo a cada núcleo para que cada uno genere un dataFrame
+    # independiente
     with mp.Pool(get_cpu_count()) as workerPool:
         splitDataFrames = workerPool.map(parse_atoms_in_gro, list(splitLines))
     print("OK!")
     # Unir los dataframes resultantes
     scrambledResultingDataFrame = pd.concat(splitDataFrames, ignore_index=True)
     # Reordenar resultados
-    resultingDataframe = scrambledResultingDataFrame.sort_values(["atomNumber"], ignore_index=True)
+    resultingDataframe = scrambledResultingDataFrame.sort_values(
+        ["atomNumber"], ignore_index=True
+    )
     return (title, nAtoms, resultingDataframe, (dimX, dimY, dimZ))
 
-def main(args):
+
+def main(gro_file: str, topol_file: Optional[str] = None) -> int:
     # Parsear el archivo .gro completo
-    mdDataFrame = gro_to_dataframe(args.groFile)[2]
+    mdDataFrame = gro_to_dataframe(gro_file)[2]
     # Generar un DataFrame con la topología
     topologyMoleculesDataFrame = pd.DataFrame(columns=["resName", "mols"])
     # Datos del primer residuo:
     currResidueName = mdDataFrame["resName"][0]
     currResidueNumber = mdDataFrame["resNumber"][0]
     currResidueMols = 1
-    print('Generando topología... ', end='')
-    for index, row in mdDataFrame[["resName", "resNumber"]].iterrows():
+    print("Generando topología... ", end="")
+    for _idx, row in mdDataFrame[["resName", "resNumber"]].iterrows():
         if (currResidueName == row["resName"]) & (
             currResidueNumber == row["resNumber"]
         ):
@@ -139,37 +169,57 @@ def main(args):
             currResidueNumber = row["resNumber"]
             pass
         else:
-            topologyMoleculesDataFrame = topologyMoleculesDataFrame.append(
-                {"resName": currResidueName, "mols": currResidueMols}, ignore_index=True
+            topologyMoleculesDataFrame = pd.concat(
+                [
+                    topologyMoleculesDataFrame,
+                    pd.DataFrame({
+                        "resName": currResidueName,
+                        "mols": currResidueMols,
+                    }),
+                ],
+                ignore_index=True,
             )
             currResidueName = row["resName"]
             currResidueNumber = row["resNumber"]
             currResidueMols = 1
-    topologyMoleculesDataFrame = topologyMoleculesDataFrame.append(
-        {"resName": currResidueName, "mols": currResidueMols}, ignore_index=True
+    topologyMoleculesDataFrame = pd.concat(
+        [
+            topologyMoleculesDataFrame,
+            pd.DataFrame({
+                "resName": currResidueName,
+                "mols": currResidueMols,
+            }),
+        ],
+        ignore_index=True,
     )
-    print('OK!')
+    print("OK!")
     print("[ molecules ]")
     print("; Compound\t#Mols")
-    for index, row in topologyMoleculesDataFrame.iterrows():
-        print("{resName}\t\t{nMols}".format(resName=row["resName"], nMols=row["mols"]))
+    for _idx, row in topologyMoleculesDataFrame.iterrows():
+        print(
+            "{resName}\t\t{nMols}".format(
+                resName=row["resName"], nMols=row["mols"]
+            )
+        )
     return 0
 
 
-if __name__ == "__main__":
+def run() -> None:
     import argparse
     from sys import exit
+
     parser = argparse.ArgumentParser(
         description="Genera la entrada '[molecules]' para un archivo de topología de Gromacs"
     )
     parser.add_argument(
-        "-t", metavar="topol.top", type=str, help="Archivo de topología a modificar"
-    )
-    parser.add_argument(
-        "groFile",
+        "gro_file",
         metavar="Archivo.gro",
         type=str,
         help="Archivo .gro del cual se generará la topología",
     )
     args = parser.parse_args()
-    exit(main(args))
+    exit(main(gro_file=args.gro_file))
+
+
+if __name__ == "__main__":
+    run()

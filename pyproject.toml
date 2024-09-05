@@ -1,0 +1,55 @@
+[tool.poetry]
+name = "setup-umbrella"
+version = "0.1.0"
+description = "Selects optimal configutations to produce an Umbrella Sampling calculation from a Gromacs pull trajectory"
+authors = ["dmunozg <dmunoz@bioscience.cl>"]
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/dmunozg/setup_umbrella"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+pandas = "^2.2.2"
+loguru = "^0.7.2"
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.6.4"
+mypy = "^1.11.2"
+pre-commit = "^3.8.0"
+pandas-stubs = "^2.2.2.240807"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+line-length = 79
+preview = true
+
+[tool.ruff.lint]
+select = [
+    # ruff
+    "RUF",
+    # pycodestyle
+    "E",
+    "W",
+    # Pyflakes
+    "F",
+    # pyupgrade
+    "UP",
+    # flake8-bugbear
+    "B",
+    # flake8-simplify
+    "SIM",
+    # isort
+    "I",
+    # no print
+    "T20",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+#ignore_missing_imports = true
+strict = true

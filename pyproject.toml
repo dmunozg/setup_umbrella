@@ -18,6 +18,9 @@ mypy = "^1.11.2"
 pre-commit = "^3.8.0"
 pandas-stubs = "^2.2.2.240807"
 
+[tool.poetry.scripts]
+mktopol = "setup_umbrella.mktopol:run"
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"

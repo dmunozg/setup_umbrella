@@ -8,6 +8,7 @@ from typing import Any, Iterator, Optional
 
 import numpy as np
 import pandas as pd
+from loguru import logger
 
 
 def chunks(lst: list[Any], n: int) -> Iterator[list[Any]]:
@@ -28,77 +29,58 @@ def get_cpu_count() -> int:
 
 def parse_atoms_in_gro(line_list: list[str]) -> pd.DataFrame:
     atomInfoParser_NullVelocity = re.compile(
-        r"(?P<resNumber>[\d\ ]{5})(?P<resName>[\s\d\w]{5})(?P<atomName>[\s\d\w]{5})(?P<atomNumber>[\s\d]{5})(?P<posX>[-\s.\d]{8})(?P<posY>[-\s.\d]{8})(?P<posZ>[-\s.\d]{8})"
+        r"(?P<resNumber>[\d\ ]{5})(?P<resName>[\s\d\w]{5})"
+        r"(?P<atomName>[\s\d\w]{5})(?P<atomNumber>[\s\d]{5})"
+        r"(?P<posX>[-\s.\d]{8})(?P<posY>[-\s.\d]{8})(?P<posZ>[-\s.\d]{8})"
     )
     atomInfoParser = re.compile(
-        r"(?P<resNumber>[\d\ ]{5})(?P<resName>[\s\d\w]{5})(?P<atomName>[\s\d\w]{5})(?P<atomNumber>[\s\d]{5})(?P<posX>[-\s.\d]{8})(?P<posY>[-\s.\d]{8})(?P<posZ>[-\s.\d]{8})(?P<velX>[-\s.\d]{8})(?P<velY>[-\s.\d]{8})(?P<velZ>[-\s.\d]{8})"
+        r"(?P<resNumber>[\d\ ]{5})(?P<resName>[\s\d\w]{5})"
+        r"(?P<atomName>[\s\d\w]{5})(?P<atomNumber>[\s\d]{5})"
+        r"(?P<posX>[-\s.\d]{8})(?P<posY>[-\s.\d]{8})(?P<posZ>[-\s.\d]{8})"
+        r"(?P<velX>[-\s.\d]{8})"
+        r"(?P<velY>[-\s.\d]{8})(?P<velZ>[-\s.\d]{8})"
     )
-    resultingDataframe = pd.DataFrame(
-        columns=[
-            "resNumber",
-            "resName",
-            "atomName",
-            "atomNumber",
-            "posX",
-            "posY",
-            "posZ",
-            "velX",
-            "velY",
-            "velZ",
-        ]
-    )
+    parsed_data: list[dict[str, Any]] = []
     for line in line_list:
-        if atomInfoParser.match(line):
+        parsed_line = atomInfoParser.match(line)
+        parsed_line_null_vel = atomInfoParser_NullVelocity.match(line)
+        if parsed_line:
             # Extraer datos, incluyendo velocidad
-            currentLineParser = atomInfoParser.match(line)
-            currentLineInfo = {
-                "resNumber": int(currentLineParser["resNumber"]),
-                "resName": currentLineParser["resName"].strip(),
-                "atomName": currentLineParser["atomName"].strip(),
-                "atomNumber": int(currentLineParser["atomNumber"]),
-                "posX": float(currentLineParser["posX"]),
-                "posY": float(currentLineParser["posY"]),
-                "posZ": float(currentLineParser["posZ"]),
-                "velX": float(currentLineParser["velX"]),
-                "velY": float(currentLineParser["velY"]),
-                "velZ": float(currentLineParser["velZ"]),
+            current_line_info = {
+                "resNumber": int(parsed_line["resNumber"]),
+                "resName": parsed_line["resName"].strip(),
+                "atomName": parsed_line["atomName"].strip(),
+                "atomNumber": int(parsed_line["atomNumber"]),
+                "posX": float(parsed_line["posX"]),
+                "posY": float(parsed_line["posY"]),
+                "posZ": float(parsed_line["posZ"]),
+                "velX": float(parsed_line["velX"]),
+                "velY": float(parsed_line["velY"]),
+                "velZ": float(parsed_line["velZ"]),
             }
-            resultingDataframe = pd.concat(
-                [
-                    resultingDataframe,
-                    pd.DataFrame(currentLineInfo),
-                ],
-                ignore_index=True,
-            )
+            parsed_data.append(current_line_info)
             pass
-        elif atomInfoParser_NullVelocity.match(line):
+        elif parsed_line_null_vel:
             # Extraer datos, reportar velocidad como NaN
-            currentLineParser = atomInfoParser_NullVelocity.match(line)
-            currentLineInfo = {
-                "resNumber": int(currentLineParser["resNumber"]),
-                "resName": currentLineParser["resName"].strip(),
-                "atomName": currentLineParser["atomName"].strip(),
-                "atomNumber": int(currentLineParser["atomNumber"]),
-                "posX": float(currentLineParser["posX"]),
-                "posY": float(currentLineParser["posY"]),
-                "posZ": float(currentLineParser["posZ"]),
+            current_line_info = {
+                "resNumber": int(parsed_line_null_vel["resNumber"]),
+                "resName": parsed_line_null_vel["resName"].strip(),
+                "atomName": parsed_line_null_vel["atomName"].strip(),
+                "atomNumber": int(parsed_line_null_vel["atomNumber"]),
+                "posX": float(parsed_line_null_vel["posX"]),
+                "posY": float(parsed_line_null_vel["posY"]),
+                "posZ": float(parsed_line_null_vel["posZ"]),
                 "velX": np.nan,
                 "velY": np.nan,
                 "velZ": np.nan,
             }
-            resultingDataframe = pd.concat(
-                [
-                    resultingDataframe,
-                    pd.DataFrame(currentLineInfo),
-                ],
-                ignore_index=True,
-            )
+            parsed_data.append(current_line_info)
             pass
         else:
             # Error de linea desconocida
             print("ERROR: Linea no reconocida:")
             print(line)
-    return resultingDataframe
+    return pd.DataFrame(parsed_data)
 
 
 def gro_to_dataframe(
@@ -147,6 +129,7 @@ def gro_to_dataframe(
     return (title, nAtoms, resultingDataframe, (dimX, dimY, dimZ))
 
 
+@logger.catch
 def main(gro_file: str, topol_file: Optional[str] = None) -> int:
     # Parsear el archivo .gro completo
     mdDataFrame = gro_to_dataframe(gro_file)[2]
@@ -172,10 +155,13 @@ def main(gro_file: str, topol_file: Optional[str] = None) -> int:
             topologyMoleculesDataFrame = pd.concat(
                 [
                     topologyMoleculesDataFrame,
-                    pd.DataFrame({
-                        "resName": currResidueName,
-                        "mols": currResidueMols,
-                    }),
+                    pd.DataFrame(
+                        {
+                            "resName": currResidueName,
+                            "mols": currResidueMols,
+                        },
+                        index=[0],
+                    ),
                 ],
                 ignore_index=True,
             )
@@ -185,10 +171,13 @@ def main(gro_file: str, topol_file: Optional[str] = None) -> int:
     topologyMoleculesDataFrame = pd.concat(
         [
             topologyMoleculesDataFrame,
-            pd.DataFrame({
-                "resName": currResidueName,
-                "mols": currResidueMols,
-            }),
+            pd.DataFrame(
+                {
+                    "resName": currResidueName,
+                    "mols": currResidueMols,
+                },
+                index=[0],
+            ),
         ],
         ignore_index=True,
     )

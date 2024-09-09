@@ -4,6 +4,7 @@ import multiprocessing as mp
 import os
 import re
 from pathlib import Path
+from sys import stdout
 from typing import Any, Iterator, Optional
 
 import numpy as np
@@ -78,8 +79,8 @@ def parse_atoms_in_gro(line_list: list[str]) -> pd.DataFrame:
             pass
         else:
             # Error de linea desconocida
-            print("ERROR: Linea no reconocida:")
-            print(line)
+            logger.error("Linea no reconocida:")
+            logger.error(line)
     return pd.DataFrame(parsed_data)
 
 
@@ -89,16 +90,15 @@ def gro_to_dataframe(
     """Returns a tuple with the following information:
     (title, nAtoms, atomDataframe, dimensions)
     Multi threaded implementation"""
-    inputGroFile = open(gro_filename)
-    print("Cargando archivo GRO en la memoria... ", end="")
-    inputGroFileLines = inputGroFile.readlines()
-    print("OK!")
-    inputGroFile.close()
+
+    logger.info("Cargando archivo GRO en la memoria... ")
+    with open(gro_filename) as input_gro_file:
+        input_gro_lines = input_gro_file.readlines()
     # Extraer datos de título, número de átomos, y dimensiones de la caja
-    print("Extrayendo metadatos de la caja... ", end="")
-    title = inputGroFileLines.pop(0).rstrip()
-    nAtoms = int(inputGroFileLines.pop(0))
-    dimentionsDataRaw = inputGroFileLines.pop(-1)
+    logger.info("Extrayendo metadatos de la caja... ")
+    title = input_gro_lines.pop(0).rstrip()
+    nAtoms = int(input_gro_lines.pop(0))
+    dimentionsDataRaw = input_gro_lines.pop(-1)
     dimentionsData = dimentionsDataRaw.split()
     dimX_str, dimY_str, dimZ_str = (
         dimentionsData[0],
@@ -106,20 +106,17 @@ def gro_to_dataframe(
         dimentionsData[2],
     )
     dimX, dimY, dimZ = float(dimX_str), float(dimY_str), float(dimZ_str)
-    print("OK!")
     # Dividir la información cruda de los átomos según la cantidad de núcleos
     # disponibles
-    print(
-        "Importando átomos empleando {} núcleos... ".format(get_cpu_count()),
-        end="",
+    logger.info(
+        f"Importando átomos empleando {get_cpu_count()} núcleos... ",
     )
-    atomsPerCPU = len(inputGroFileLines) / get_cpu_count()
-    splitLines = chunks(inputGroFileLines, int(atomsPerCPU))
+    atomsPerCPU = len(input_gro_lines) / get_cpu_count()
+    splitLines = chunks(input_gro_lines, int(atomsPerCPU))
     # Repartir cada grupo a cada núcleo para que cada uno genere un dataFrame
     # independiente
     with mp.Pool(get_cpu_count()) as workerPool:
         splitDataFrames = workerPool.map(parse_atoms_in_gro, list(splitLines))
-    print("OK!")
     # Unir los dataframes resultantes
     scrambledResultingDataFrame = pd.concat(splitDataFrames, ignore_index=True)
     # Reordenar resultados
@@ -139,7 +136,7 @@ def main(gro_file: str, topol_file: Optional[str] = None) -> int:
     currResidueName = mdDataFrame["resName"][0]
     currResidueNumber = mdDataFrame["resNumber"][0]
     currResidueMols = 1
-    print("Generando topología... ", end="")
+    logger.info("Generando topología... ")
     for _idx, row in mdDataFrame[["resName", "resNumber"]].iterrows():
         if (currResidueName == row["resName"]) & (
             currResidueNumber == row["resNumber"]
@@ -181,12 +178,11 @@ def main(gro_file: str, topol_file: Optional[str] = None) -> int:
         ],
         ignore_index=True,
     )
-    print("OK!")
-    print("[ molecules ]")
-    print("; Compound\t#Mols")
+    stdout.write("[ molecules ]\n")
+    stdout.write("; Compound\t#Mols\n")
     for _idx, row in topologyMoleculesDataFrame.iterrows():
-        print(
-            "{resName}\t\t{nMols}".format(
+        stdout.write(
+            "{resName}\t\t{nMols}\n".format(
                 resName=row["resName"], nMols=row["mols"]
             )
         )
@@ -198,7 +194,8 @@ def run() -> None:
     from sys import exit
 
     parser = argparse.ArgumentParser(
-        description="Genera la entrada '[molecules]' para un archivo de topología de Gromacs"
+        description="Genera la entrada '[molecules]' para un archivo de"
+        " topología de Gromacs"
     )
     parser.add_argument(
         "gro_file",

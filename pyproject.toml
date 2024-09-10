@@ -11,12 +11,14 @@ repository = "https://github.com/dmunozg/setup_umbrella"
 python = "^3.12"
 pandas = "^2.2.2"
 loguru = "^0.7.2"
+gromacswrapper = {git = "https://github.com/Becksteinlab/GromacsWrapper.git"}
 
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.6.4"
 mypy = "^1.11.2"
 pre-commit = "^3.8.0"
 pandas-stubs = "^2.2.2.240807"
+ipykernel = "^6.29.5"
 
 [tool.poetry.scripts]
 mktopol = "setup_umbrella.mktopol:run"

@@ -1,0 +1,45 @@
+; Forcefield
+#include "gromos53a6_atb.ff/forcefield.itp"
+[ angletypes ]
+HC    C     HC	    2	ga_8
+
+; Aditions
+
+; 1-Decanol
+#include "itp/1dnl.itp"
+#ifdef POSRES_BILAYER
+#include "itp/1dnl.posre.itp"
+#endif
+; Dodecyl sulphate
+#include "itp/dcf2.itp"
+#ifdef POSRES_BILAYER
+#include "itp/dcf2.posre.itp"
+#endif
+
+; SO42-
+#include "itp/so42.itp"
+
+; TP1 Peptide
+#include "itp/tp1.itp"
+
+; Include water topology
+#include "gromos53a6_atb.ff/spce.itp"
+
+; Include topology for ions
+#include "gromos53a6_atb.ff/ions.itp"
+
+[ system ]
+; TP1 in SDS Bilayer
+
+[ molecules ]
+; Compound      #Mols
+DeOH            40
+SDS             141
+DeOH            40
+SDS             141
+SOL             6297
+NA              348
+SO42            33
+SOL             7803
+TP1		1
+SO42		1

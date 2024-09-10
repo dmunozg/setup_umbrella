@@ -1,0 +1,75 @@
+title                     = Umbrella pulling simulation
+define                    = -DPOSRES_BILAYER
+; Run parameters
+integrator                = md
+dt                        = 0.002
+tinit                     = 0
+nsteps                    = 20000000    ; 20 000 000fs * 2(dt) 
+nstcomm                   = 500
+comm-mode                 = Linear
+; Output parameters
+nstxout                   = 5000      ; every 10 ps
+nstvout                   = 5000
+; Bond parameters
+constraint_algorithm      = lincs
+constraints               = all-bonds
+lincs_iter	               = 1
+lincs_order	              = 4
+continuation              = yes
+; Neighborsearching
+cutoff-scheme             = Verlet
+ns_type                   = grid              ; search neighboring grid cells
+nstlist                   = 50                ; 20 fs, largely irrelevant with Verlet
+; Single-range cutoff scheme
+rlist                     = 0.8
+rcoulomb                  = 1.4
+rvdw                      = 1.4
+; PME electrostatics parameters
+coulombtype               = PME
+fourierspacing            = 0.16
+fourier_nx                = 0
+fourier_ny                = 0
+fourier_nz                = 0
+pme_order                 = 4
+ewald_rtol                = 1e-5
+optimize_fft              = yes
+; Berendsen temperature coupling is on in two groups
+Tcoupl                    = V-rescale
+tc_grps                   = Bilayer Bulk TP1
+nsttcouple                = 10
+tau_t                     = 1.0   1.0 1.0
+ref_t                     = 310   310 310
+; Pressure coupling is on
+Pcoupl                    = no
+;pcoupltype               = isotropic
+;tau_p                    = 1.0       
+;compressibility          = 4.5e-5
+;ref_p                    = 1.0
+;refcoord_scaling         = com
+;nstpcouple	              = 20
+; Generate velocities is off
+gen_vel                   = no 
+; Periodic boundary conditions are on in all directions
+pbc                       = xyz
+; Long-range dispersion correction
+DispCorr                  = EnerPres
+; Pull code
+pull                      = yes
+pull-print-com            = yes
+pull-print-ref-value      = yes
+pull-print-components     = yes
+pull-pbc-ref-prev-step-com = yes
+pull-ngroups              = 2
+pull-ncoords              = 1
+pull-group1-name          = Bilayer
+pull-group1-pbcatom       = 5720
+pull-group2-name	         = TP1
+pull-coord1-type          = umbrella ; harmonic biasing force
+pull-coord1-geometry      = direction-periodic
+pull-coord1-groups        = 1 2
+;pull-coord1-origin	      = 3.97015 3.97015 3.80155
+pull-coord1-vec           = 0. 0. -1.
+pull-coord1-init          = 0.0
+pull-coord1-start         = yes
+pull-coord1-rate          = 0.0005          ; 0.0005 nm per ps 
+pull-coord1-k             = 800          ; kJ mol^-1 nm^-2

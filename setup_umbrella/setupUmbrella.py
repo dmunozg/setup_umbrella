@@ -166,7 +166,11 @@ def generate_pull_tpr(
         grompp_kwargs["n"] = str(index_file)
 
     # Execute GROMACS grompp and check its result
-    grompp_result = grompp_runner.run(**grompp_kwargs)
+    grompp_result = grompp_runner.run(
+        **grompp_kwargs,
+        stdout=False,
+        stderr=False,
+    )
     if grompp_result[0] == 0:
         return (resulting_tpr_file, str(grompp_result[2]))
     else:
@@ -601,17 +605,25 @@ def run() -> None:
         "--mdp",
         help="MDP file to be used in the umbrella calculations",
         type=str,
+        required=True,
     )
     parser.add_argument(
         "-t",
         "--trajectory",
         help="Pull trajectory file. (.xtc or .trr)",
         type=str,
+        required=True,
     )
     parser.add_argument(
-        "-s", "--tpr", help="Portable binary input file (.tpr)", type=str
+        "-s",
+        "--tpr",
+        help="Portable binary input file (.tpr)",
+        type=str,
+        required=True,
     )
-    parser.add_argument("-n", "--index", help="Index file (.ndx)", type=str)
+    parser.add_argument(
+        "-n", "--index", help="Index file (.ndx)", type=str, required=True
+    )
     parser.add_argument(
         "-p",
         "--topol",
@@ -619,9 +631,16 @@ def run() -> None:
         default="topol.top",
         help="Topology file (.top)",
         type=str,
+        required=True,
     )
-    parser.add_argument("-A", "--groupA", help="Name of group A", type=str)
-    parser.add_argument("-B", "--groupB", help="Name of group B")
+    # TODO: These groups can be deduced from the mdp file. They should not be
+    # required
+    parser.add_argument(
+        "-A", "--groupA", help="Name of group A", type=str, required=True
+    )
+    parser.add_argument(
+        "-B", "--groupB", help="Name of group B", required=True
+    )
     parser.add_argument(
         "--limit",
         nargs=2,
